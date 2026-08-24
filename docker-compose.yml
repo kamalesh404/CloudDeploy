@@ -1,0 +1,57 @@
+services:
+  control-plane:
+    build: .
+    image: clouddeploy:latest
+    container_name: clouddeploy-cli
+    entrypoint: ["tail", "-f", "/dev/null"]
+    environment:
+      CLOUDDEPLOY_STATE_BACKEND: s3
+      CLOUDDEPLOY_STATE_BUCKET: clouddeploy-tfstate
+      AWS_DEFAULT_REGION: us-east-1
+      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgres://clouddeploy:secret@postgres:5432/clouddeploy
+    volumes:
+      - ./:/workspace
+      - clouddeploy-state:/home/deploy/.clouddeploy
+    working_dir: /workspace
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: clouddeploy
+      POSTGRES_PASSWORD: secret
+      POSTGRES_DB: clouddeploy
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U clouddeploy"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+
+  smoke-tests:
+    build: .
+    command: ["python", "-m", "pytest", "-q"]
+    profiles: ["verify"]
+    volumes:
+      - ./:/workspace
+    working_dir: /workspace
+
+volumes:
+  pgdata:
+  redisdata:
+  clouddeploy-state:
